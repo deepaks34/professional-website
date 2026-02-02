@@ -1,31 +1,31 @@
-name: Professional Website CI/CD
+name: CI-CD Professional Website
 
 on:
   push:
     branches:
       - main
 
+permissions:
+  id-token: write   # REQUIRED for OIDC
+  contents: read
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout code
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2️⃣ Set up Docker
       - name: Set up Docker
         uses: docker/setup-buildx-action@v3
 
-      # 3️⃣ Login to Docker Hub
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # 4️⃣ Build & push Docker image
       - name: Build and push Docker image
         run: |
           IMAGE_NAME=${{ secrets.DOCKER_USERNAME }}/professional-website
@@ -35,34 +35,20 @@ jobs:
           docker push $IMAGE_NAME:$TAG
           docker push $IMAGE_NAME:latest
 
-      # 5️⃣ Install kubectl
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v4
+      # ⭐ OIDC magic happens here
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          version: v1.29.0
+          role-to-assume: arn:aws:iam::616033922030:role/github-actions-eks-deployer
+          aws-region: us-east-1
 
-      # 6️⃣ Configure kubeconfig (EKS)
-      - name: Configure kubeconfig
+      - name: Update kubeconfig
         run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBECONFIG_B64 }}" | base64 --decode > ~/.kube/config
-          chmod 600 ~/.kube/config
+          aws eks update-kubeconfig \
+            --region us-east-1 \
+            --name professional-website-eks
 
-      # 7️⃣ Verify kubeconfig & context (VERY IMPORTANT)
-      - name: Verify kubeconfig and context
-        run: |
-          kubectl config get-contexts
-          kubectl config current-context
-
-      # 8️⃣ Force correct EKS context
-      - name: Set EKS context
-        run: |
-          kubectl config use-context arn:aws:eks:us-east-1:616033922030:cluster/professional-website-eks
-
-      # 9️⃣ Deploy to EKS
       - name: Deploy to EKS
         run: |
           kubectl set image deployment/professional-website \
-            website=${{ secrets.DOCKER_USERNAME }}/professional-website:${{ github.sha }}
-
-          kubectl rollout status deployment/professional-website
+            professional-website=${{ secrets.DOCKER_USERNAME }}/professional-website:latest
