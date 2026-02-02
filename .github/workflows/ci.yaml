@@ -50,5 +50,6 @@ jobs:
 
       - name: Deploy to EKS
         run: |
-          kubectl set image deployment/professional-website \
-            professional-website=${{ secrets.DOCKER_USERNAME }}/professional-website:latest
+          IMAGE=${{ secrets.DOCKER_USERNAME }}/professional-website:${{ github.sha }}
+          kubectl set image deployment/professional-website website=$IMAGE
+          kubectl rollout status deployment/professional-website
