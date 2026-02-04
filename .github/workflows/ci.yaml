@@ -95,6 +95,10 @@ jobs:
           aws eks update-kubeconfig \
             --region $AWS_REGION \
             --name $CLUSTER_NAME
+            --role-arn arn:aws:iam::616033922030:role/github-actions-eks-deployer
+            
+      - name: Wait for EKS access propagation
+        run: sleep 60
 
       # ---------- Kubernetes Deploy ----------
       - name: Deploy to EKS (idempotent)
