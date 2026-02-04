@@ -45,7 +45,6 @@ module "eks" {
   cluster_name    = "professional-website-eks"
   cluster_version = "1.29"
 
-  # 🔑 CRITICAL FIXES
   cluster_endpoint_public_access  = true
   cluster_endpoint_private_access = false
 
@@ -55,10 +54,9 @@ module "eks" {
   eks_managed_node_groups = {
     default = {
       instance_types = ["t3.medium"]
-
-      min_size     = 1
-      max_size     = 1
-      desired_size = 1
+      min_size       = 1
+      max_size       = 1
+      desired_size   = 1
     }
   }
 }
