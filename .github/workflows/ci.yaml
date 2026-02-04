@@ -34,7 +34,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::616033922030:role/github-actions-terraform
-          aws-region: $AWS_REGION
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -88,7 +88,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::616033922030:role/github-actions-eks-deployer
-          aws-region: $AWS_REGION
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Update kubeconfig
         run: |
@@ -97,21 +97,18 @@ jobs:
             --name $CLUSTER_NAME
 
       # ---------- Kubernetes Deploy ----------
-      - name: Deploy to EKS (no manual kubectl ever)
+      - name: Deploy to EKS (idempotent)
         run: |
           IMAGE_TAG=${GITHUB_SHA}
           FULL_IMAGE=$IMAGE_NAME:$IMAGE_TAG
 
           echo "Deploying image: $FULL_IMAGE"
 
-          # Ensure namespace exists (safe to rerun)
           kubectl get namespace $NAMESPACE \
             || kubectl create namespace $NAMESPACE
 
-          # Inject image into deployment
           sed -i "s|IMAGE_PLACEHOLDER|$FULL_IMAGE|g" k8s/deployment.yaml
 
-          # Apply ALL Kubernetes resources
           kubectl apply -n $NAMESPACE -f k8s/
 
       - name: Verify rollout
