@@ -6,17 +6,62 @@ on:
       - main
 
 permissions:
-  id-token: write   # REQUIRED for OIDC
+  id-token: write
   contents: read
 
+env:
+  AWS_REGION: us-east-1
+  CLUSTER_NAME: professional-website-eks
+  IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/professional-website
+  NAMESPACE: default
+
 jobs:
-  build-and-deploy:
+  ################################################
+  # 1️⃣ Terraform – Infra + EKS Access
+  ################################################
+  terraform:
     runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: terraform
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Configure AWS credentials (Terraform role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::616033922030:role/github-actions-terraform
+          aws-region: $AWS_REGION
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.6
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Apply (EKS + Access)
+        run: terraform apply -auto-approve
+
+  ################################################
+  # 2️⃣ Build & Deploy Application
+  ################################################
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    needs: terraform
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ---------- Docker ----------
       - name: Set up Docker
         uses: docker/setup-buildx-action@v3
 
@@ -28,28 +73,49 @@ jobs:
 
       - name: Build and push Docker image
         run: |
-          IMAGE_NAME=${{ secrets.DOCKER_USERNAME }}/professional-website
-          TAG=${{ github.sha }}
+          IMAGE_TAG=${GITHUB_SHA}
 
-          docker build -t $IMAGE_NAME:$TAG -t $IMAGE_NAME:latest .
-          docker push $IMAGE_NAME:$TAG
+          docker build \
+            -t $IMAGE_NAME:$IMAGE_TAG \
+            -t $IMAGE_NAME:latest \
+            .
+
+          docker push $IMAGE_NAME:$IMAGE_TAG
           docker push $IMAGE_NAME:latest
 
-      # ⭐ OIDC magic happens here
-      - name: Configure AWS credentials
+      # ---------- AWS / EKS ----------
+      - name: Configure AWS credentials (EKS deployer role)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::616033922030:role/github-actions-eks-deployer
-          aws-region: us-east-1
+          aws-region: $AWS_REGION
 
       - name: Update kubeconfig
         run: |
           aws eks update-kubeconfig \
-            --region us-east-1 \
-            --name professional-website-eks
+            --region $AWS_REGION \
+            --name $CLUSTER_NAME
 
-      - name: Deploy to EKS
+      # ---------- Kubernetes Deploy ----------
+      - name: Deploy to EKS (no manual kubectl ever)
         run: |
-          IMAGE=${{ secrets.DOCKER_USERNAME }}/professional-website:${{ github.sha }}
-          kubectl set image deployment/professional-website website=$IMAGE
-          kubectl rollout status deployment/professional-website
+          IMAGE_TAG=${GITHUB_SHA}
+          FULL_IMAGE=$IMAGE_NAME:$IMAGE_TAG
+
+          echo "Deploying image: $FULL_IMAGE"
+
+          # Ensure namespace exists (safe to rerun)
+          kubectl get namespace $NAMESPACE \
+            || kubectl create namespace $NAMESPACE
+
+          # Inject image into deployment
+          sed -i "s|IMAGE_PLACEHOLDER|$FULL_IMAGE|g" k8s/deployment.yaml
+
+          # Apply ALL Kubernetes resources
+          kubectl apply -n $NAMESPACE -f k8s/
+
+      - name: Verify rollout
+        run: |
+          kubectl rollout status deployment/professional-website \
+            -n $NAMESPACE \
+            --timeout=120s
