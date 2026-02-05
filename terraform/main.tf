@@ -44,6 +44,9 @@ module "eks" {
 
   cluster_name    = "professional-website-eks"
   cluster_version = "1.29"
+  
+  create_cloudwatch_log_group = false
+  cluster_encryption_config  = {}
 
   cluster_endpoint_public_access  = true
   cluster_endpoint_private_access = false
